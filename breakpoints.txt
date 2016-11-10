@@ -1,1 +1,8 @@
  b futex_wait_requeue_pi
+ 
+ b sys_sendmsg (wrapper)
+ b ___sys_sendmsg 
+ iovstack function
+
+ b futex_lock_pi
+
