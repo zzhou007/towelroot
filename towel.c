@@ -838,7 +838,8 @@ void *search_goodnum(void *arg) {
 				HACKS_final_stack_base = (struct thread_info *)(*((unsigned long *)MAGIC) & 0xffffe000);
 
 				pthread_mutex_lock(&is_thread_awake_lock);
-
+                
+                //179change 
 				printf("kill pid 12\n");
                 if (kill(pid, 12) == -1) {
                     int errsv = errno;
